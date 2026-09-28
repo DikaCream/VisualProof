@@ -18,7 +18,7 @@ function nextAction(a: AttestationSummary): string {
 }
 
 export function Board() {
-  const { attestations, stats, loading, error } = useVisualProof();
+  const { attestations, stats, loading, error, refresh } = useVisualProof();
 
   return (
     <div className="page">
@@ -70,7 +70,16 @@ export function Board() {
       </section>
 
       {loading && <div className="empty">Reading the contract...</div>}
-      {error && !loading && <div className="empty bad">Could not read the contract: {error}</div>}
+      {error && !loading && (
+        <>
+          <div className="empty bad">Could not read the contract: {error}</div>
+          <div className="cta-row">
+            <button className="btn primary" onClick={refresh}>
+              Read it again
+            </button>
+          </div>
+        </>
+      )}
       {!loading && !error && attestations.length === 0 && (
         <div className="empty">No attestation stands yet. Request the first one.</div>
       )}

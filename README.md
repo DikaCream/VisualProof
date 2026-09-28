@@ -137,7 +137,56 @@ Vision cannot be covered here, and the reason is worth stating plainly: the
 local VM's `render(mode="screenshot")` returns an empty image no matter what is
 mocked, so any vision claim can only be settled on a live network. The suite
 asserts that an empty image burns a round instead of settling anyone, and the
-network run below is where real pixels are exercised.
+network runs below are where real pixels are exercised.
+
+### Every function, on the live network
+
+```bash
+gltest --network studionet tests/smoke_vision.py -v -s
+gltest --network studionet tests/live_functional_test.py -v -s
+```
+
+`smoke_vision.py` proves the primitive: one screenshot, one vision prompt, one
+consensus verdict, before any state machine exists to complicate the diagnosis.
+
+`live_functional_test.py` exercises every function and every guard against real
+consensus, including the three that a freshly seeded board cannot reach inside
+one sitting: `claim_reward`, `refund_stale` and `finalize_challenge` all wait on
+windows of a day or more, and waiting a day is not a test. So it generates a
+probe copy of the contract with the same logic and compressed clocks (a 60
+second window, a 10 second cooldown), renames the class, deploys it, and deletes
+the generated source when it finishes. The production contract is never touched.
+
+Two things that script learned the hard way, both encoded in it now:
+
+- Every wait is computed from the timestamp the contract recorded
+  (`verdict_at`, `challenged_at`, `requested_at`), never a fixed sleep. A
+  compressed window is shorter than the run of guard checks between two steps,
+  so a hardcoded sleep is how a test ends up asserting a revert that has already
+  stopped reverting.
+- StudioNet rate limits reads to 30 requests per minute (code -32029). A test
+  that checks state after every step bursts straight through that, so reads are
+  cached until the record is written again and a rate-limit refusal backs off
+  instead of failing.
+
+### The frontend, in a real browser
+
+```bash
+cd frontend && npm run build && npx vite preview --port 4183 &
+node tools/frontend_sweep.mjs http://127.0.0.1:4183/
+```
+
+It drives Chrome over CDP and checks every route, the board reading the live
+contract, a detail page for every record, the wallet wiring (with a stubbed
+provider, since a headless browser has no MetaMask), the wrong-network notice
+and the request form's validation. A page that fails to load fails the whole
+sweep loudly, because otherwise every assertion about text that is not there
+passes by accident.
+
+Reads retry with backoff: the public RPC drops requests under a burst, and the
+frontend used to report a dropped request as "this attestation does not exist",
+which is a lie the visitor cannot recover from. A transport failure now offers a
+retry, and only a real revert says a record is missing.
 
 ## On StudioNet
 

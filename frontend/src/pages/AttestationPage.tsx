@@ -21,19 +21,34 @@ function sameAddr(a: string | null | undefined, b: string | null | undefined): b
 export function AttestationPage() {
   const { id } = useParams();
   const attId = parseInt(id || "0", 10);
-  const { read, run, busy, wallet, version } = useVisualProof();
+  const { read, run, busy, wallet, version, refresh } = useVisualProof();
   const [att, setAtt] = useState<Attestation | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [readFailed, setReadFailed] = useState(false);
   const [grounds, setGrounds] = useState("");
   const [nowSec, setNowSec] = useState(Math.floor(Date.now() / 1000));
 
   useEffect(() => {
     let alive = true;
-    read.getAttestation(attId).then((a) => {
-      if (!alive) return;
-      if (!a) setLoadError("That attestation does not exist on this contract.");
-      else setAtt(a);
-    });
+    setReadFailed(false);
+    if (!Number.isFinite(attId) || attId < 1) {
+      setLoadError("That attestation does not exist on this contract.");
+      return () => {
+        alive = false;
+      };
+    }
+    read
+      .getAttestation(attId)
+      .then((a) => {
+        if (!alive) return;
+        if (!a) setLoadError("That attestation does not exist on this contract.");
+        else setAtt(a);
+      })
+      .catch(() => {
+        // a dropped RPC request is not a missing record, and saying so would be
+        // a lie the visitor cannot recover from
+        if (alive) setReadFailed(true);
+      });
     return () => {
       alive = false;
     };
@@ -45,10 +60,33 @@ export function AttestationPage() {
     return () => clearInterval(t);
   }, []);
 
+  if (readFailed) {
+    return (
+      <div className="page narrow">
+        <div className="note bad">
+          The network did not answer while reading this attestation. That is a dropped request, not a
+          missing record: the verdict on chain has not gone anywhere.
+        </div>
+        <div className="cta-row">
+          <button className="btn primary" onClick={refresh}>
+            Read it again
+          </button>
+          <Link className="btn ghost" to="/">
+            Back to the board
+          </Link>
+        </div>
+      </div>
+    );
+  }
   if (loadError) {
     return (
       <div className="page narrow">
         <div className="note bad">{loadError}</div>
+        <div className="cta-row">
+          <Link className="btn ghost" to="/">
+            Back to the board
+          </Link>
+        </div>
       </div>
     );
   }
