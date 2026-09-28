@@ -167,16 +167,48 @@ async function main() {
   await missing.close();
 
   // ------------------------------------------------------- per-state actions
+  // The expectation is derived from the board's own status labels rather than
+  // from record ordering: which state the oldest record sits in depends on what
+  // the seed did, and an assumption about ordering is how a sweep ends up
+  // asserting the wrong button on a board it has never seen.
   console.log("\n-- per-state action sets --");
-  const expected = [
-    [ids[ids.length - 1], "Run the attestation", "a REQUESTED record offers the attestation"],
-    [ids[0], null, "the newest record renders"],
+  const ACTION_FOR_LABEL = [
+    [/awaiting an attestation/, /Run the attestation/, "a REQUESTED record offers the attestation"],
+    [
+      /verdict standing/,
+      /Challenge: stake \d|Release the reward to the verifier/,
+      "an ATTESTED record offers a challenge or its reward release",
+    ],
+    [/challenged, re-review pending/, /Run the re-review|Finalize: the window passed/, "a CHALLENGED record offers a re-review or a finalize"],
+    [/verifier paid/, /Closed: verifier paid/, "a REWARDED record reads as closed"],
+    [/challenge failed, record stands/, /Closed: challenge failed/, "an UPHELD record reads as closed"],
+    [/record corrected/, /Closed: record corrected/, "an OVERTURNED record reads as closed"],
+    [/refunded, no verdict/, /Closed: refunded/, "a REFUNDED record reads as closed"],
   ];
-  for (const [id, needle, label] of expected) {
-    if (!id) continue;
-    const p = await openTarget(`${BASE}/#/attestations/${id}`);
+
+  const b2 = await openTarget(`${BASE}/`);
+  const rows = await b2.evalJs(
+    `JSON.stringify([...document.querySelectorAll('.att-row')].map((r) => ({
+      href: r.getAttribute('href'),
+      label: (r.querySelector('.lamp')?.innerText || '').trim(),
+    })))`,
+  );
+  await b2.close();
+  const byLabel = {};
+  for (const row of JSON.parse(rows || "[]")) {
+    if (row.href) (byLabel[row.label] = byLabel[row.label] || []).push(row.href);
+  }
+  const labelsSeen = Object.keys(byLabel);
+  check("the board exposes the states it holds", labelsSeen.length > 1, `labels: ${labelsSeen.join(" | ")}`);
+
+  for (const [labelPattern, actionPattern, description] of ACTION_FOR_LABEL) {
+    const label = labelsSeen.find((l) => labelPattern.test(l));
+    if (!label) continue;
+    const p = await openTarget(`${BASE}/${byLabel[label][0]}`);
     const t = await text(p);
-    check(label, p.loaded && (needle ? t.includes(needle) : t.includes(`Attestation #${id}`)), t.slice(0, 90));
+    check(`${description} (${label})`, p.loaded && actionPattern.test(t), t.slice(0, 130));
+    check(`${label}: no unhandled error`, p.loaded && realErrors(p).length === 0, realErrors(p)[0]);
+    hiccupTotal += hiccups(p);
     await p.close();
   }
 

@@ -141,6 +141,17 @@ def wait_for(deadline: int, label: str) -> None:
         time.sleep(remaining)
 
 
+def cool_down(label: str) -> None:
+    """Wait out the contract's per-record review cooldown.
+
+    The view does not publish `last_round_at`, and a test that has just run a
+    round knows exactly when it did, so it waits the cooldown out itself instead
+    of reading a field that was never exposed.
+    """
+    print(f"    waiting {COOLDOWN + MARGIN}s for {label}...", flush=True)
+    time.sleep(COOLDOWN + MARGIN)
+
+
 class Probe:
     def __init__(self, c, buyer, seller, third):
         self.c, self.buyer, self.seller, self.third = c, buyer, seller, third
@@ -377,7 +388,7 @@ def test_live_functions():
         p.challenge(b, "the marker may have been removed")
         record("challenge stakes the bond and flips the state", p.att(b)["status"] == "CHALLENGED")
         record("the staked bond is held by the contract", int(p.stats()["bonds_held"]) == FEE)
-        wait_for(int(p.att(b)["last_round_at"]) + COOLDOWN, "the review cooldown")
+        cool_down("the review cooldown")
         db = p.re_review(b)
         st = p.stats()
         need(db["status"] == "UPHELD", f"expected UPHELD, got {db['status']}")
@@ -393,7 +404,7 @@ def test_live_functions():
         p.challenge(cc, "the page has changed since the verdict")
         write_page(url_c, "the marker has been removed from this page")
         refunded_before = int(p.stats()["refunded"])
-        wait_for(int(p.att(cc)["last_round_at"]) + COOLDOWN, "the review cooldown")
+        cool_down("the review cooldown")
         d = p.re_review(cc)
         st = p.stats()
         need(d["status"] == "OVERTURNED", f"expected OVERTURNED, got {d['status']}")
@@ -405,7 +416,7 @@ def test_live_functions():
         e = p.request(DEAD_URL, "The page shows anything at all.", "text", "refund path")
         for _ in range(2):
             p.attest(e)
-            wait_for(int(p.att(e)["last_round_at"]) + COOLDOWN, "the review cooldown")
+            cool_down("the review cooldown")
         de = p.attest(e)
         record(
             "three unrenderable rounds refund the fee",
@@ -460,7 +471,11 @@ def test_live_functions():
             "finalize_challenge", [b], third, "no challenge is pending", "finalize_challenge reverts with no challenge"
         )
         st = p.stats()
-        record("get_stats carries the standing challenge bond", int(st["bonds_held"]) == FEE)
+        record(
+            "every challenge bond has been resolved by this point",
+            int(st["bonds_held"]) == 0,
+            f"bonds_held={int(st['bonds_held'])}",
+        )
         record(
             "get_stats reports one overturned challenge",
             int(st["overturned"]) == 1 and int(st["challenged"]) >= 3,
@@ -468,9 +483,16 @@ def test_live_functions():
         )
         try:
             c.list_attestations(args=[0, 51, False]).call()
-            record("list_attestations reverts on bad pagination", False, "it returned instead of reverting")
+            record("list_attestations refuses bad pagination", False, "it returned instead of reverting")
         except Exception as e:  # noqa: BLE001
-            record("list_attestations reverts on bad pagination", "bad pagination" in str(e).lower(), str(e)[:120])
+            # a reverting view surfaces as a bare "execution failed" over the RPC,
+            # so the reason string is asserted in the direct tests instead
+            msg = str(e).lower()
+            record(
+                "list_attestations refuses bad pagination",
+                "execution failed" in msg or "bad pagination" in msg,
+                str(e)[:120],
+            )
 
         # ======================= states for the frontend ===================
         print("\n-- states left pending for the frontend sweep --", flush=True)

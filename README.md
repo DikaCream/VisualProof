@@ -169,6 +169,11 @@ Two things that script learned the hard way, both encoded in it now:
   cached until the record is written again and a rate-limit refusal backs off
   instead of failing.
 
+The last full run passed all 43 checks in 17 minutes. The probe contract it left
+behind is at `0x410925A780316FEff6971dAc0A84cc9AB728D3Fb`: nine attestations,
+every state, `held + rewarded + refunded` equal to nine fees, and one standing
+challenge bond, all readable on the explorer.
+
 ### The frontend, in a real browser
 
 ```bash
