@@ -1,0 +1,21 @@
+# environments and secrets
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# genlayer test artifacts
+artifacts/
+
+# gltest.config.yaml holds StudioNet private keys: keep it out of the repo and
+# commit gltest.config.example.yaml instead
+gltest.config.yaml
+
+# frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/tsconfig.tsbuildinfo
