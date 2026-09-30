@@ -536,10 +536,10 @@ def test_void_challenge_returns_the_bond_and_frees_the_reward(vp, direct_vm, dir
     aid = _stand(vp, direct_vm, direct_alice, direct_bob, verdict="REFUTED")
     call(direct_vm, lambda: vp.challenge(aid, "grounds"), direct_charlie, FEE, T0 + COOLDOWN + 60)
     direct_vm.clear_mocks()  # the page becomes unrenderable for the re-review
-    # one verdict round is already spent, so a single unrenderable round fits
-    # before the cap, and the next one voids the challenge
+    # challenge has its own MAX_CHALLENGE_ROUNDS=3 budget, so it takes 3 unrenderable rounds to void
     assert call(direct_vm, lambda: vp.re_review(aid), direct_charlie, 0, T0 + COOLDOWN * 3) == "UNRENDERABLE"
-    assert call(direct_vm, lambda: vp.re_review(aid), direct_charlie, 0, T0 + COOLDOWN * 5) == "ATTESTED"
+    assert call(direct_vm, lambda: vp.re_review(aid), direct_charlie, 0, T0 + COOLDOWN * 5) == "UNRENDERABLE"
+    assert call(direct_vm, lambda: vp.re_review(aid), direct_charlie, 0, T0 + COOLDOWN * 7) == "ATTESTED"
     a = vp.get_attestation(aid)
     assert a["status"] == "ATTESTED"
     assert a["challenge_voided"]
@@ -549,7 +549,7 @@ def test_void_challenge_returns_the_bond_and_frees_the_reward(vp, direct_vm, dir
     assert int(stats["bond_payouts"]) == FEE   # returned, not forfeited
     assert int(stats["rewarded"]) == 0
     # and the verifier can now be paid despite the window not having expired
-    call(direct_vm, lambda: vp.claim_reward(aid), direct_bob, 0, T0 + COOLDOWN * 7)
+    call(direct_vm, lambda: vp.claim_reward(aid), direct_bob, 0, T0 + COOLDOWN * 9)
     assert int(vp.get_stats()["rewarded"]) == FEE
 
 
@@ -707,3 +707,57 @@ def test_stats_start_empty(vp, direct_vm, direct_alice):
     assert int(stats["bonds_held"]) == 0
     assert int(stats["rewarded"]) == 0
     assert int(stats["refunded"]) == 0
+
+
+# ----------------------------------------------------------------- regression
+# Steward requirement: every accepted challenge must have at least one executable
+# re-review attempt, including when the original verdict was reached on round three.
+# This test demonstrates the full path: 3 attestation rounds -> challenge -> 1 re_review.
+def test_challenge_after_max_attestation_rounds_still_has_re_review(
+    vp, direct_vm, direct_alice, direct_bob, direct_charlie
+):
+    """Attestation burns 3 rounds (max), then a challenge is raised.
+    The challenge gets its own MAX_CHALLENGE_ROUNDS budget, so re_review is executable."""
+    aid = request(vp, direct_vm, direct_alice)
+
+    # Round 1: UNRENDERABLE
+    assert attest(vp, direct_vm, direct_bob, aid, at=T0 + COOLDOWN * 2) == "UNRENDERABLE"
+    # Round 2: UNRENDERABLE
+    assert attest(vp, direct_vm, direct_bob, aid, at=T0 + COOLDOWN * 4) == "UNRENDERABLE"
+    # Round 3: CONFIRMED (verdict lands on max round)
+    mock_verdict(direct_vm, "CONFIRMED")
+    assert attest(vp, direct_vm, direct_bob, aid, at=T0 + COOLDOWN * 6) == "CONFIRMED"
+
+    a = vp.get_attestation(aid)
+    assert a["status"] == "ATTESTED"
+    assert a["verdict"] == "CONFIRMED"
+    assert int(a["rounds"]) == 3
+    assert int(a["max_rounds"]) == 3
+
+    # Challenge after max attestation rounds
+    call(
+        direct_vm,
+        lambda: vp.challenge(aid, "the page actually says refused"),
+        direct_charlie,
+        FEE,
+        T0 + COOLDOWN * 7,
+    )
+    a = vp.get_attestation(aid)
+    assert a["status"] == "CHALLENGED"
+    assert int(a["challenge_rounds"]) == 0
+    assert int(a["max_challenge_rounds"]) == 3
+
+    # Re-review is executable because challenge_rounds < MAX_CHALLENGE_ROUNDS
+    mock_verdict(direct_vm, "REFUTED")  # flip the verdict
+    result = call(
+        direct_vm,
+        lambda: vp.re_review(aid),
+        direct_bob,
+        0,
+        T0 + COOLDOWN * 9,
+    )
+    assert result == "OVERTURNED"
+    a = vp.get_attestation(aid)
+    assert a["status"] == "OVERTURNED"
+    assert a["verdict"] == "REFUTED"
+    assert int(a["challenge_rounds"]) == 1

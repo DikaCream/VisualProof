@@ -65,6 +65,7 @@ CHALLENGE_WINDOW = 24 * 3600   # 1 day to challenge, and to re-review a challeng
 DETACH_SLACK = 3600            # grace before an unattested request refunds
 REVIEW_COOLDOWN = 60           # seconds between rounds on one attestation
 MAX_ROUNDS = 3                 # rounds before a request force-refunds
+MAX_CHALLENGE_ROUNDS = 3       # re-review rounds for a challenge
 MAX_CLAIM = 400
 MAX_PURPOSE = 300
 MAX_URL = 500
@@ -222,6 +223,7 @@ class Attestation:
     reasoning: str
     confidence: str
     rounds: u256
+    challenge_rounds: u256
     challenges: u256
     challenge_voided: bool
     challenged_at: u256
@@ -334,6 +336,7 @@ class VisualProof(gl.Contract):
             reasoning="",
             confidence="",
             rounds=u256(0),
+            challenge_rounds=u256(0),
             challenges=u256(0),
             challenge_voided=False,
             challenged_at=u256(0),
@@ -564,6 +567,7 @@ class VisualProof(gl.Contract):
         a.challenger = gl.message.sender_address
         a.has_challenger = True
         a.challenges = u256(int(a.challenges) + 1)
+        a.challenge_rounds = u256(0)
         a.challenged_at = u256(self._now())
         # the stake restarts the clock, so a late challenger still gets a full
         # window to run the re-review inside
@@ -581,18 +585,18 @@ class VisualProof(gl.Contract):
             raise gl.vm.UserError("no challenge is pending on this attestation")
         if self._now() > int(a.challenged_at) + CHALLENGE_WINDOW:
             raise gl.vm.UserError("re-review window closed")
-        if int(a.rounds) >= MAX_ROUNDS:
-            raise gl.vm.UserError("rounds exhausted")
+        if int(a.challenge_rounds) >= MAX_CHALLENGE_ROUNDS:
+            raise gl.vm.UserError("challenge rounds exhausted")
         if self._now() < int(a.last_round_at) + REVIEW_COOLDOWN:
             raise gl.vm.UserError("cooldown between rounds")
 
         outcome = self._judge(a)
-        a.rounds = u256(int(a.rounds) + 1)
+        a.challenge_rounds = u256(int(a.challenge_rounds) + 1)
         a.last_round_at = u256(self._now())
 
         if outcome["kind"] != "verdict":
             self.total_void_rounds = u256(int(self.total_void_rounds) + 1)
-            if int(a.rounds) >= MAX_ROUNDS:
+            if int(a.challenge_rounds) >= MAX_CHALLENGE_ROUNDS:
                 # the failure belongs to the page or the model, not to the
                 # challenger: the standing record survives and the bond returns
                 self._void_challenge(a, "the re-review never produced a verdict")
@@ -732,6 +736,8 @@ class VisualProof(gl.Contract):
             "confidence": a.confidence,
             "rounds": a.rounds,
             "max_rounds": MAX_ROUNDS,
+            "challenge_rounds": a.challenge_rounds,
+            "max_challenge_rounds": MAX_CHALLENGE_ROUNDS,
             "challenges": a.challenges,
             "challenge_voided": a.challenge_voided,
             "challenged_at": a.challenged_at,
