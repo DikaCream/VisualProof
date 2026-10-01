@@ -9,7 +9,7 @@ consensus output and the page is evidence, never an authority.
 
 ## Try it
 
-- App: https://visualproof-gamma.vercel.app
+- App: https://visual-proof-beta.vercel.app
 - Repo: https://github.com/DikaCream/VisualProof
 - Contract on StudioNet: `0x3Ab5b60C4649A5DA80618EB179E18b49f50478B7`
 
