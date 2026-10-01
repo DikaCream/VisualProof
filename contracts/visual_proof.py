@@ -233,6 +233,23 @@ class Attestation:
 
 
 # =====================================================================
+# Payouts go to EOA wallets (requester, verifier, challenger), never to other
+# Intelligent Contracts. In GenLayer, sending GEN to an address on the chain
+# layer (an EOA) is an EXTERNAL message: it must be emitted through the EVM
+# contract interface so it crosses from the GenVM layer to the chain layer and
+# is credited to the wallet. Emitted through the internal IC proxy
+# (gl.get_contract_at(...).emit_transfer) instead, the same value is deducted
+# from the contract and held in an internal PostMessage that no wallet can
+# consume, so the transfer never lands and the GEN is stuck.
+@gl.evm.contract_interface
+class _Recipient:
+    class View:
+        pass
+
+    class Write:
+        pass
+
+
 class VisualProof(gl.Contract):
     attestations: TreeMap[u256, Attestation]
     next_id: u256
@@ -285,7 +302,9 @@ class VisualProof(gl.Contract):
     # --------------------------------------------------------- the ledger
     def _pay(self, to: Address, amount: int) -> None:
         if amount > 0:
-            gl.get_contract_at(to).emit_transfer(value=u256(amount))
+            # External value transfer to an EOA wallet (see _Recipient): this is
+            # the only path that actually credits the recipient's balance.
+            _Recipient(to).emit_transfer(value=u256(amount))
 
     # ------------------------------------------------------------- create
     @gl.public.write.payable

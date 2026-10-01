@@ -404,6 +404,37 @@ def test_claim_reward_reverts_on_a_request_with_no_verdict(vp, direct_vm, direct
         vp.claim_reward(aid)
 
 
+def test_payout_credits_the_wallet_via_an_external_message(vp, direct_vm, direct_alice, direct_bob):
+    """The reward must leave as an external EVM value transfer (EthSend) so it
+    is credited to the recipient wallet. An internal PostMessage to an EOA is
+    never consumed: the value is deducted from the contract and then stuck in an
+    undeliverable message, so the wallet is never paid. This asserts the payout
+    is exactly one external transfer carrying the fee, with no internal
+    value-carrying message."""
+    aid = _stand(vp, direct_vm, direct_alice, direct_bob)
+
+    captured = []
+
+    def capture(vm, request):
+        captured.append(request)
+        return None
+
+    direct_vm._gl_call_hook = capture
+    try:
+        call(direct_vm, lambda: vp.claim_reward(aid), direct_bob, 0, T0 + COOLDOWN + WINDOW + 10)
+    finally:
+        direct_vm._gl_call_hook = None
+
+    eth_sends = [r["EthSend"] for r in captured if "EthSend" in r]
+    post_messages = [r for r in captured if "PostMessage" in r]
+
+    assert len(eth_sends) == 1
+    sent = eth_sends[0]
+    assert int(sent["value"]) == FEE
+    assert not sent["calldata"]  # a pure value transfer, no method call
+    assert post_messages == []
+
+
 # ------------------------------------------------------------- challenge
 def test_challenge_stakes_the_bond(vp, direct_vm, direct_alice, direct_bob, direct_charlie):
     aid = _stand(vp, direct_vm, direct_alice, direct_bob)
