@@ -14,7 +14,7 @@ export const RPC_URL = (studionet.rpcUrls?.default?.http?.[0] as string) ?? "";
 
 /** The deployed VisualProof contract. Set VITE_CONTRACT_ADDRESS per deploy. */
 export const CONTRACT_ADDRESS =
-  (import.meta.env.VITE_CONTRACT_ADDRESS as string) || "0x3Ab5b60C4649A5DA80618EB179E18b49f50478B7";
+  (import.meta.env.VITE_CONTRACT_ADDRESS as string) || "0xFffEbFDb9117EB5F247C8753AfB5d511653C3C10";
 
 export const isConfigured = (): boolean => /^0x[0-9a-fA-F]{40}$/.test(CONTRACT_ADDRESS);
 
